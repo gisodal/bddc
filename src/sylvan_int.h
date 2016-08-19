@@ -92,11 +92,25 @@ extern llmsset_t nodes;
 #define CACHE_MTBDD_GREATER             (55LL<<40)
 #define CACHE_MTBDD_EVAL_COMPOSE        (56LL<<40)
 
+// ZDD operations
+#define CACHE_ZDD_FROM_MTBDD            (80LL<<40)
+#define CACHE_ZDD_TO_MTBDD              (81LL<<40)
+#define CACHE_ZDD_EXTEND_DOMAIN         (82LL<<40)
+#define CACHE_ZDD_SUPPORT               (83LL<<40)
+#define CACHE_ZDD_PATHCOUNT             (84LL<<40)
+#define CACHE_ZDD_AND                   (85LL<<40)
+#define CACHE_ZDD_OR                    (86LL<<40)
+#define CACHE_ZDD_ITE                   (87LL<<40)
+#define CACHE_ZDD_NOT                   (88LL<<40)
+#define CACHE_ZDD_EXISTS                (89LL<<40)
+#define CACHE_ZDD_PROJECT               (90LL<<40)
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
 
 #include <sylvan_mtbdd_int.h>
 #include <sylvan_ldd_int.h>
+#include <sylvan_zdd_int.h>
 
 #endif
