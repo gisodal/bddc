@@ -10,6 +10,7 @@ set(SOURCES
     sylvan_mtbdd.c
     sylvan_obj.cpp
     sylvan_refs.c
+    sylvan_reorder.c
     sylvan_sl.c
     sylvan_stats.c
     sylvan_table.c
@@ -30,6 +31,7 @@ set(HEADERS
     sylvan_mtbdd.h
     sylvan_mtbdd_int.h
     sylvan_obj.hpp
+    sylvan_reorder.h
     sylvan_stats.h
     sylvan_table.h
     sylvan_tls.h
