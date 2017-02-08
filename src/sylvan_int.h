@@ -104,6 +104,15 @@ extern llmsset_t nodes;
 #define CACHE_ZDD_NOT                   (88LL<<40)
 #define CACHE_ZDD_EXISTS                (89LL<<40)
 #define CACHE_ZDD_PROJECT               (90LL<<40)
+#define CACHE_ZDD_CLAUSE_ENVIRONMENT    (91LL<<40)
+#define CACHE_ZDD_CLAUSE_SAT            (92LL<<40)
+#define CACHE_ZDD_CLAUSE_SUPPORT        (93LL<<40)
+#define CACHE_ZDD_CLAUSE_ISOC           (94LL<<40)
+#define CACHE_ZDD_CLAUSE_UP             (95LL<<40)
+#define CACHE_ZDD_CLAUSE_EXPAND         (96LL<<40)
+#define CACHE_ZDD_CLAUSE_SUBSUME        (97LL<<40)
+#define CACHE_ZDD_CLAUSE_SELF_SUBSUME   (98LL<<40)
+#define CACHE_ZDD_CLAUSE_OR             (99LL<<40)
 
 #ifdef __cplusplus
 }

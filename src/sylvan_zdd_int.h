@@ -101,14 +101,14 @@ zddnode_getvariable(zddnode_t n)
 static inline int __attribute__((unused))
 zddnode_getmark(zddnode_t n)
 {
-    return n->b & 0x1000000000000000 ? 1 : 0;
+    return n->a & 0x1000000000000000 ? 1 : 0;
 }
 
 static inline void __attribute__((unused))
 zddnode_setmark(zddnode_t n, int mark)
 {
-    if (mark) n->b |= 0x1000000000000000;
-    else n->b &= 0xefffffffffffffff;
+    if (mark) n->a |= 0x1000000000000000;
+    else n->a &= 0xefffffffffffffff;
 }
 
 static inline void __attribute__((unused))
