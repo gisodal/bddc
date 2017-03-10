@@ -144,56 +144,70 @@ VOID_TASK_0(zdd_gc_mark_protected)
 /**
  * Internal references (spawn/sync, push/pop)
  */
+typedef struct zdd_refs_internal
+{
+    ZDD **pbegin, **pend, **pcur;
+    ZDD *rbegin, *rend, *rcur;
+    Task **sbegin, **send, **scur;
+} *zdd_refs_internal_t;
 
 DECLARE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
 
-VOID_TASK_2(zdd_refs_mark_r_par, ZDD*, arr, size_t, count)
+VOID_TASK_2(zdd_refs_mark_p_par, ZDD**, begin, size_t, count)
 {
     if (count < 32) {
         while (count) {
-            zdd_gc_mark_rec(*arr);
-            arr++;
+            zdd_gc_mark_rec(**(begin++));
             count--;
         }
     } else {
-        SPAWN(zdd_refs_mark_r_par, arr, count/2);
-        CALL(zdd_refs_mark_r_par, arr+count/2, count-count/2);
+        SPAWN(zdd_refs_mark_p_par, begin, count / 2);
+        CALL(zdd_refs_mark_p_par, begin + (count / 2), count - count / 2);
+        SYNC(zdd_refs_mark_p_par);
+    }
+}
+
+VOID_TASK_2(zdd_refs_mark_r_par, ZDD*, begin, size_t, count)
+{
+    if (count < 32) {
+        while (count) {
+            zdd_gc_mark_rec(*begin++);
+            count--;
+        }
+    } else {
+        SPAWN(zdd_refs_mark_r_par, begin, count / 2);
+        CALL(zdd_refs_mark_r_par, begin + (count / 2), count - count / 2);
         SYNC(zdd_refs_mark_r_par);
     }
 }
 
-VOID_TASK_2(zdd_refs_mark_s_par, Task**, arr, size_t, count)
+VOID_TASK_2(zdd_refs_mark_s_par, Task**, begin, size_t, count)
 {
-    if (count > 0) {
-        Task *t = *arr;
-        if (!TASK_IS_STOLEN(t)) return;
-    }
     if (count < 32) {
         while (count) {
-            Task *t = *arr;
+            Task *t = *begin++;
             if (!TASK_IS_STOLEN(t)) return;
             if (TASK_IS_COMPLETED(t)) {
-                zdd_gc_mark_rec(*(ZDD*)TASK_RESULT(t));
+                zdd_gc_mark_rec(*(BDD*)TASK_RESULT(t));
             }
-            arr++;
             count--;
         }
     } else {
-        SPAWN(zdd_refs_mark_s_par, arr, count/2);
-        CALL(zdd_refs_mark_s_par, arr+count/2, count-count/2);
+        if (!TASK_IS_STOLEN((*begin))) return;
+        SPAWN(zdd_refs_mark_s_par, begin, count / 2);
+        CALL(zdd_refs_mark_s_par, begin + (count / 2), count - count / 2);
         SYNC(zdd_refs_mark_s_par);
     }
 }
 
-/**
- * Mark all internal references (during garbage collection)
- */
 VOID_TASK_0(zdd_refs_mark_task)
 {
     LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
-    SPAWN(zdd_refs_mark_r_par, zdd_refs_key->results, zdd_refs_key->r_count);
-    CALL(zdd_refs_mark_s_par, zdd_refs_key->spawns, zdd_refs_key->s_count);
+    SPAWN(zdd_refs_mark_p_par, zdd_refs_key->pbegin, zdd_refs_key->pcur-zdd_refs_key->pbegin);
+    SPAWN(zdd_refs_mark_r_par, zdd_refs_key->rbegin, zdd_refs_key->rcur-zdd_refs_key->rbegin);
+    CALL(zdd_refs_mark_s_par, zdd_refs_key->sbegin, zdd_refs_key->scur-zdd_refs_key->sbegin);
     SYNC(zdd_refs_mark_r_par);
+    SYNC(zdd_refs_mark_p_par);
 }
 
 VOID_TASK_0(zdd_refs_mark)
@@ -204,13 +218,96 @@ VOID_TASK_0(zdd_refs_mark)
 VOID_TASK_0(zdd_refs_init_task)
 {
     zdd_refs_internal_t s = (zdd_refs_internal_t)malloc(sizeof(struct zdd_refs_internal));
-    s->r_size = 128;
-    s->r_count = 0;
-    s->s_size = 128;
-    s->s_count = 0;
-    s->results = (BDD*)malloc(sizeof(BDD) * 128);
-    s->spawns = (Task**)malloc(sizeof(Task*) * 128);
+    s->pcur = s->pbegin = (ZDD**)malloc(sizeof(ZDD*) * 1024);
+    s->pend = s->pbegin + 1024;
+    s->rcur = s->rbegin = (ZDD*)malloc(sizeof(ZDD) * 1024);
+    s->rend = s->rbegin + 1024;
+    s->scur = s->sbegin = (Task**)malloc(sizeof(Task*) * 1024);
+    s->send = s->sbegin + 1024;
     SET_THREAD_LOCAL(zdd_refs_key, s);
+}
+
+VOID_TASK_0(zdd_refs_init)
+{
+    INIT_THREAD_LOCAL(zdd_refs_key);
+    TOGETHER(zdd_refs_init_task);
+    sylvan_gc_add_mark(TASK(zdd_refs_mark));
+}
+
+void
+zdd_refs_ptrs_up(zdd_refs_internal_t zdd_refs_key)
+{
+    size_t cur = zdd_refs_key->pcur - zdd_refs_key->pbegin;
+    size_t size = zdd_refs_key->pend - zdd_refs_key->pbegin;
+    zdd_refs_key->pbegin = (ZDD**)realloc(zdd_refs_key->pbegin, sizeof(ZDD*) * size*2);
+    zdd_refs_key->pcur = zdd_refs_key->pbegin + cur;
+    zdd_refs_key->pend = zdd_refs_key->pend + size * 2;
+}
+
+ZDD __attribute__((noinline))
+zdd_refs_refs_up(zdd_refs_internal_t zdd_refs_key, ZDD res)
+{
+    long size = zdd_refs_key->rend - zdd_refs_key->rbegin;
+    zdd_refs_key->rbegin = (ZDD*)realloc(zdd_refs_key->rbegin, sizeof(ZDD) * size * 2);
+    zdd_refs_key->rcur = zdd_refs_key->rbegin + size;
+    zdd_refs_key->rend = zdd_refs_key->rbegin + (size * 2);
+    return res;
+}
+
+void __attribute__((noinline))
+zdd_refs_tasks_up(zdd_refs_internal_t zdd_refs_key)
+{
+    long size = zdd_refs_key->send - zdd_refs_key->sbegin;
+    zdd_refs_key->sbegin = (Task**)realloc(zdd_refs_key->sbegin, sizeof(Task*) * size * 2);
+    zdd_refs_key->scur = zdd_refs_key->sbegin + size;
+    zdd_refs_key->send = zdd_refs_key->sbegin + (size * 2);
+}
+
+void __attribute__((unused))
+zdd_refs_pushptr(ZDD *ptr)
+{
+    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
+    *zdd_refs_key->pcur++ = ptr;
+    if (zdd_refs_key->pcur == zdd_refs_key->pend) zdd_refs_ptrs_up(zdd_refs_key);
+}
+
+void __attribute__((unused))
+zdd_refs_popptr(size_t amount)
+{
+    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
+    zdd_refs_key->pcur -= amount;
+}
+
+ZDD __attribute__((unused))
+zdd_refs_push(ZDD zdd)
+{
+    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
+    *(zdd_refs_key->rcur++) = zdd;
+    if (zdd_refs_key->rcur == zdd_refs_key->rend) return zdd_refs_refs_up(zdd_refs_key, zdd);
+    else return zdd;
+}
+
+void __attribute__((unused))
+zdd_refs_pop(long amount)
+{
+    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
+    zdd_refs_key->rcur -= amount;
+}
+
+void __attribute__((unused))
+zdd_refs_spawn(Task *t)
+{
+    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
+    *(zdd_refs_key->scur++) = t;
+    if (zdd_refs_key->scur == zdd_refs_key->send) zdd_refs_tasks_up(zdd_refs_key);
+}
+
+ZDD __attribute__((unused))
+zdd_refs_sync(ZDD result)
+{
+    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
+    zdd_refs_key->scur -= 1;
+    return result;
 }
 
 /**
@@ -2401,17 +2498,9 @@ TASK_IMPL_2(ZDD, zdd_diff, ZDD, a, ZDD, b)
     /**
      * Check the case where A or B is False
      */
-    if (a == zdd_false || b == zdd_false) return zdd_false;
-    if (a == b) return a;
-
-    /**
-     * Switch A and B if A > B (for cache)
-     */
-    if (ZDD_GETINDEX(a) > ZDD_GETINDEX(b)) {
-        ZDD t = a;
-        a = b;
-        b = t;
-    }
+    if (a == zdd_false) return zdd_false;
+    if (b == zdd_false) return a;
+    if (a == b) return zdd_false;
 
     /**
      * Maybe run garbage collection
@@ -2421,69 +2510,53 @@ TASK_IMPL_2(ZDD, zdd_diff, ZDD, a, ZDD, b)
     /**
      * Count operation
      */
-    sylvan_stats_count(ZDD_AND);
+    sylvan_stats_count(ZDD_DIFF);
 
     /**
      * Check the cache
      */
     ZDD result;
-    if (cache_get3(CACHE_ZDD_AND, a, b, 0, &result)) {
-        sylvan_stats_count(ZDD_AND_CACHED);
+    if (cache_get3(CACHE_ZDD_DIFF, a, b, 0, &result)) {
+        sylvan_stats_count(ZDD_DIFF_CACHED);
         return result;
     }
 
     /**
-     * b cannot be True
-     * if a is True, then we only return True if b evaluates to True for 00000...
+     * Get the vars
      */
-    if (a == zdd_true) {
-        ZDD _b = b;
-        while (_b != zdd_true && _b != zdd_false) _b = zdd_getlow(_b);
-        result = _b;
-    } else {
-        /**
-         * Get the vars
-         */
-        const zddnode_t a_node = ZDD_GETNODE(a);
-        const uint32_t a_var = zddnode_getvariable(a_node);
-        const zddnode_t b_node = ZDD_GETNODE(b);
-        const uint32_t b_var = zddnode_getvariable(b_node);
-        uint32_t minvar = a_var < b_var ? a_var : b_var;
+    const zddnode_t a_node = zdd_isleaf(a) ? NULL : ZDD_GETNODE(a);
+    const uint32_t a_var = a_node == NULL ? 0xffffffff : zddnode_getvariable(a_node);
+    const zddnode_t b_node = zdd_isleaf(b) ? NULL : ZDD_GETNODE(b);
+    const uint32_t b_var = b_node == NULL ? 0xffffffff : zddnode_getvariable(b_node);
+    uint32_t minvar = a_var < b_var ? a_var : b_var;
 
-        /**
-         * Get cofactors for A and B
-         */
-        ZDD a0 = minvar < a_var ? a : zddnode_low(a, a_node);
-        ZDD a1 = minvar < a_var ? zdd_false : zddnode_high(a, a_node);
-        ZDD b0 = minvar < b_var ? b : zddnode_low(b, b_node);
-        ZDD b1 = minvar < b_var ? zdd_false : zddnode_high(b, b_node);
+    /**
+     * Get the cofactors
+     */
+    const ZDD a0 = minvar < a_var ? a : zddnode_low(a, a_node);
+    const ZDD a1 = minvar < a_var ? zdd_false : zddnode_high(a, a_node);
+    const ZDD b0 = minvar < b_var ? b : zddnode_low(b, b_node);
+    const ZDD b1 = minvar < b_var ? zdd_false : zddnode_high(b, b_node);
 
-        /**
-         * Now we call recursive tasks
-         */
-        ZDD low, high;
-        if (a1 == zdd_false || b1 == zdd_false) {
-            low = zdd_and(a0, b0);
-            high = zdd_false;
-        } else {
-            zdd_refs_spawn(SPAWN(zdd_and, a0, b0));
-            high = zdd_and(a1, b1);
-            zdd_refs_push(high);
-            low = zdd_refs_sync(SYNC(zdd_and));
-            zdd_refs_pop(1);
-        }
+    /**
+     * Now we call recursive tasks
+     */
+    zdd_refs_spawn(SPAWN(zdd_diff, a0, b0));
+    ZDD high = CALL(zdd_diff, a1, b1);
+    zdd_refs_push(high);
+    ZDD low = zdd_refs_sync(SYNC(zdd_diff));
+    zdd_refs_pop(1);
 
-        /**
-         * Compute result node
-         */
-        result = zdd_makenode(minvar, low, high);
-    }
+    /**
+     * Compute result node
+     */
+    result = zdd_makenode(minvar, low, high);
 
     /**
      * Cache the result
      */
-    if (cache_put3(CACHE_ZDD_AND, a, b, 0, result)) {
-        sylvan_stats_count(ZDD_AND_CACHEDPUT);
+    if (cache_put3(CACHE_ZDD_DIFF, a, b, 0, result)) {
+        sylvan_stats_count(ZDD_DIFF_CACHEDPUT);
     }
 
     return result;

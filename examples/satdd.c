@@ -365,7 +365,7 @@ TASK_4(int, test_multirup, ZDD, db, ZDD, units, ZDD, clauses, int, pivot)
     return (res && otherres) ? 1 : 0;
 }
 
-TASK_3(int, parse_drat_file, FILE*, file, ZDD, db, ZDD, db_dom)
+TASK_2(int, parse_drat_file, FILE*, file, ZDD, db)
 {
     // TODO: protect db
     zdd_protect(&db);
@@ -431,7 +431,7 @@ TASK_3(int, parse_drat_file, FILE*, file, ZDD, db, ZDD, db_dom)
             if (deleting) {
                 // TODO zdd_remove_clause
                 ZDD cl = zdd_clause(lits);
-                db = zdd_ite(cl, zdd_false, db, db_dom);
+                db = zdd_diff(db, cl);
                 deleting = 0;
             } else {
                 // TODO if verbose
@@ -570,11 +570,10 @@ VOID_TASK_0(gc_end)
     INFO("Garbage collection done");
 }
 
-int
-main(int argc, char **argv)
+void
+parse_args(int argc, char **argv)
 {
-    t_start = wctime();
-
+    // Parse arguments
     argp_parse(&argp, argc, argv, 0, 0, 0);
 
     // Parse table sizes
@@ -601,30 +600,14 @@ main(int argc, char **argv)
         to_h((1ULL<<tablesize)*24+(1ULL<<cachesize)*36, buf);
         INFO("Initial nodes table and operation cache requires %s.\n", buf);
     }
+}
 
-    // Init Lace
-    lace_init(workers, 1000000); // auto-detect number of workers, use a 1,000,000 size task queue
-    lace_startup(0, NULL, NULL); // auto-detect program stack, do not use a callback for startup
-
-    LACE_ME;
-
-    // Init Sylvan
-    // sylvan_set_sizes(1LL<<tablesize, 1LL<<maxtablesize, 1LL<<cachesize, 1LL<<maxcachesize);
-    // Give 12 GB memory
-    sylvan_set_limits(12000000000, -1, 0);
-    sylvan_init_package();
-    sylvan_init_mtbdd();
-    sylvan_init_zdd();
-
-    // Set hooks for logging garbage collection
-    // sylvan_gc_hook_pregc(TASK(gc_start));
-    // sylvan_gc_hook_postgc(TASK(gc_end));
-    
+TASK_0(ZDD, read_input_cnf)
+{
     ZDD db;
-    zdd_protect(&db);
 
-    // Open file
     if (cnf_filename != NULL) {
+        // Open file
         FILE *f = fopen(cnf_filename, "r");
         if (f == NULL) Abort("Cannot open file %s!", cnf_filename);
 
@@ -641,55 +624,149 @@ main(int argc, char **argv)
 
     INFO("Read %s, %d variables, %d clauses, %d literals.", cnf_filename, nvars, nclauses, nlits);
 
-    // Compute the full domain of db (for ite)
+    return db;
+}
+
+TASK_0(ZDD, compute_zdd_domain)
+{
     uint32_t dom_arr[nvars*2];
     for (int i=0; i<nvars*2; i++) dom_arr[i] = i+2;
     ZDD db_dom = zdd_set_from_array(dom_arr, nvars*2);
-    zdd_protect(&db_dom);
+    return db_dom;
+}
 
+VOID_TASK_1(check_drat, ZDD, db)
+{
+    FILE *f = fopen(drat_filename, "r");
+    if (f == NULL) Abort("Cannot open file %s!", drat_filename);
+
+    INFO("Opened %s.", drat_filename);
+
+    int success = CALL(parse_drat_file, f, db);
+
+    // Close file
+    fclose(f);
+    
+    if (success) {
+        INFO("DRAT check good");
+    } else {
+        INFO("DRAT check bad");
+    }
+}
+
+VOID_TASK_1(do_variables, ZDD, db)
+{
+    char *str = strdup(variables);
+    char *savePtr = str, *tok;
+    ZDD lits = zdd_true;
+    BDD vars = mtbdd_true;
+    while ((tok = strtok_r(savePtr, ",", &savePtr))) {
+        int var = atoi(tok);
+        lits = zdd_set_add(lits, 2*var);
+        lits = zdd_set_add(lits, 2*var+1);
+        vars = mtbdd_set_add(vars, var);
+    }
+    free(str);
+
+    // Extract the environment of *some* variable
+    db = zdd_clause_environment(db, lits);
+
+    // print_clause_db(db, nvars);
+
+    // Compute support of environment
+    ZDD vars_env = zdd_clause_support(db);
+    int nvars_env = (int)zdd_set_count(vars_env);
+
+    // Report
+    INFO("Environment of \"%s\": %.0lf clauses, %d variables, %zu nodes.", variables, zdd_satcount(db), nvars_env, zdd_nodecount(&db, 1));
+
+    // Compute BDD of satisfying assignments
+    MTBDD sat = zdd_clause_sat(db, mtbdd_true);  // TODO: under partial assignment?
+    INFO("Satisfying BDD: %zu nodes, %.0lf global assignments, %.0lf local assignments.", mtbdd_nodecount(sat), mtbdd_satcount(sat, nvars), mtbdd_satcount(sat, nvars_env));
+    //FILE *fdot=fopen("sat.dot","w");mtbdd_fprintdot(fdot,sat);fclose(fdot);
+
+    // Compute ISOC of BDD
+    MTBDD xx;
+    ZDD isoc = zdd_clause_isoc(sat, sat, &xx);
+
+    // Compute Existential quatification of variables
+    MTBDD quantified = sylvan_exists(sat, vars);
+    MTBDD q_check;
+    ZDD q_isoc = zdd_clause_isoc(quantified, quantified, &q_check);
+    // INFO("BDD after Exists: %zu nodes, %.0lf global assignments, %.0lf local assignments.", mtbdd_nodecount(quantified), mtbdd_satcount(quantified, nvars), mtbdd_satcount(quantified, nvars_env));
+
+    // print_clause_db(q_isoc, nvars);
+
+    // Get number of clauses
+    size_t env_n_clauses = zdd_satcount(db);
+    size_t isoc_n_clauses = zdd_satcount(isoc);
+    size_t q_isoc_n_clauses = zdd_satcount(q_isoc);
+
+    INFO("#Clauses before=%zu, after=%zu, quant=%zu.", env_n_clauses, isoc_n_clauses, q_isoc_n_clauses);
+
+    if (q_isoc_n_clauses <= env_n_clauses) {
+        print_clause_db(q_isoc, nvars);
+    } else if (isoc_n_clauses < env_n_clauses) {
+        print_clause_db(isoc, nvars);
+    }
+}
+
+
+int
+main(int argc, char **argv)
+{
+    t_start = wctime();
+    parse_args(argc, argv);
+
+    // Init Lace
+    lace_init(workers, 1000000); // auto-detect number of workers, use a 1,000,000 size task queue
+    lace_startup(0, NULL, NULL); // auto-detect program stack, do not use a callback for startup
+
+    LACE_ME;
+
+    // Init Sylvan
+    // Give 2 GB memory
+    sylvan_set_limits(2*1000*1000*1000, -1, 0);
+    sylvan_init_package();
+    sylvan_init_mtbdd();
+    sylvan_init_zdd();
+
+    // Set hooks for logging garbage collection
+    if (verbose) {
+        sylvan_gc_hook_pregc(TASK(gc_start));
+        sylvan_gc_hook_postgc(TASK(gc_end));
+    }
+    
+    // Read the input CNF
+    ZDD db = CALL(read_input_cnf);
+    zdd_protect(&db);
+
+    // Compute the full domain of CNF
+    // ZDD db_dom = CALL(compute_zdd_domain);
+    // zdd_protect(&db_dom);
+
+    // If called with a DRAT file, call the prove checker
     if (drat_filename != NULL) {
-        FILE *f = fopen(drat_filename, "r");
-        if (f == NULL) Abort("Cannot open file %s!", drat_filename);
-
-        INFO("Opened %s.", drat_filename);
-
-        int success = CALL(parse_drat_file, f, db, db_dom);
-
-        // Close file
-        fclose(f);
-        
-        if (success) {
-            INFO("DRAT check good");
-        } else {
-            INFO("DRAT check bad");
-        }
+        CALL(check_drat, db);
         exit(0);
     }
 
-    //** HACK for testing subsumption **//
-    /*
-    ZDD test = zdd_ithvar(6); // 2
-    db = zdd_clause_subsume(db, test);
-    INFO("After self-subsumption: %.0lf clauses using %zu nodes.", zdd_satcount(db), zdd_nodecount(&db, 1));
-    print_clause_db(db, nvars);
-    exit(1);
-    */
-    // print_clause_db(db, nvars);
-
+    // Store the original set of clauses somewhere
     ZDD original_db = db;
-    ZDD all_units = zdd_true;
     zdd_protect(&original_db);
-    zdd_protect(&all_units);
-
-    sylvan_gc_disable();
 
     // Report that we have read the input file
-    INFO("Stored %.0lf clauses using %zu ZDD nodes.", zdd_satcount(db), zdd_nodecount(&db, 1));
+    INFO("After loading CNF: %.0lf clauses using %zu nodes.", zdd_satcount(db), zdd_nodecount(&db, 1));
 
+    // Perform self subsumption on clause database
     db = zdd_clause_self_subsume(db);
     INFO("After self-subsumption: %.0lf clauses using %zu nodes.", zdd_satcount(db), zdd_nodecount(&db, 1));
 
-    // Try the given unit propagation first
+    // The ZDD "all_units" will store all units found...
+    ZDD all_units = zdd_true;
+    zdd_protect(&all_units);
+
+    // Propagate units from the command line
     if (prop_units != NULL) {
         char *str = strdup(prop_units);
         char *savePtr = str, *tok;
@@ -700,25 +777,31 @@ main(int argc, char **argv)
         }
         free(str);
 
-        if (units != zdd_true) {
-            all_units = zdd_set_union(all_units, units);
-            INFO("Found %zu units!", zdd_set_count(units));
-            if (zdd_clause_units_contradict(units)) {
-                Abort("Units contradict! Aborting.\n");
-            }
-            db = zdd_clause_up(db, units);
+        // Propagate units once.
+        INFO("Propagting %zu units from the command line!", zdd_set_count(units));
+        if (zdd_clause_units_contradict(units)) {
+            Abort("Units contradict! Aborting.\n");
         }
+        db = zdd_clause_up(db, units);
+        all_units = units;
     }
 
+    // The ZDD for temporary units... (also, protect it)
+    ZDD units = zdd_true;
+    zdd_protect(&units);
+
     // Find all unit clauses
-    ZDD units = zdd_clause_units(db);
+    units = zdd_clause_units(db);
     if (units == zdd_false) {
         Abort("The empty clause has been found!");
     }
 
-    // Find all pure literals
-    ZDD pure_literals = zdd_clause_pure(db_dom);
-    units = zdd_or(units, pure_literals);
+    /**
+     * EXPENSIVE pure literal check
+     * A cheaper version would use a kill switch?
+     */
+    // ZDD pure_literals = zdd_clause_pure(db_dom);
+    // units = zdd_or(units, pure_literals);
 
     if (units != zdd_true) {
         while (units != zdd_true) {
@@ -732,80 +815,22 @@ main(int argc, char **argv)
             if (units == zdd_false) {
                 Abort("The empty clause has been found! Aborting.");
             }
-            /**
-             * EXPENSIVE pure literal check
-             * A cheaper version would use a kill switch?
-             */
-            pure_literals = zdd_clause_pure(zdd_support(db));
-            units = zdd_or(units, pure_literals);
+            // pure_literals = zdd_clause_pure(zdd_support(db));
+            // units = zdd_or(units, pure_literals);
         }
-
-        // Compute support of environment
-        ZDD vars_after = zdd_clause_support(db);
-        size_t nvars_after = zdd_set_count(vars_after);
-        INFO("After propagating units and pure literals: %.0lf clauses with %zu variables using %zu nodes.", zdd_satcount(db), nvars_after, zdd_nodecount(&db, 1));
     }
 
+    INFO("After unit propagation: %.0lf clauses using %zu nodes.", zdd_satcount(db), zdd_nodecount(&db, 1));
+
+    // If command line has -e <variables> then call the (currently) experiment function and exit
     if (variables != NULL) {
-        char *str = strdup(variables);
-        char *savePtr = str, *tok;
-        ZDD lits = zdd_true;
-        BDD vars = mtbdd_true;
-        while ((tok = strtok_r(savePtr, ",", &savePtr))) {
-            int var = atoi(tok);
-            lits = zdd_set_add(lits, 2*var);
-            lits = zdd_set_add(lits, 2*var+1);
-            vars = mtbdd_set_add(vars, var);
-        }
-        free(str);
-
-        // Extract the environment of *some* variable
-        db = zdd_clause_environment(db, lits);
-
-        // print_clause_db(db, nvars);
-
-        // Compute support of environment
-        ZDD vars_env = zdd_clause_support(db);
-        int nvars_env = (int)zdd_set_count(vars_env);
-
-        // Report
-        INFO("Environment of \"%s\": %.0lf clauses, %d variables, %zu nodes.", variables, zdd_satcount(db), nvars_env, zdd_nodecount(&db, 1));
-
-        // Compute BDD of satisfying assignments
-        MTBDD sat = zdd_clause_sat(db, mtbdd_true);  // TODO: under partial assignment?
-        INFO("Satisfying BDD: %zu nodes, %.0lf global assignments, %.0lf local assignments.", mtbdd_nodecount(sat), mtbdd_satcount(sat, nvars), mtbdd_satcount(sat, nvars_env));
-        //FILE *fdot=fopen("sat.dot","w");mtbdd_fprintdot(fdot,sat);fclose(fdot);
-
-        // Compute ISOC of BDD
-        MTBDD xx;
-        ZDD isoc = zdd_clause_isoc(sat, sat, &xx);
-
-        // Compute Existential quatification of variables
-        MTBDD quantified = sylvan_exists(sat, vars);
-        MTBDD q_check;
-        ZDD q_isoc = zdd_clause_isoc(quantified, quantified, &q_check);
-        // INFO("BDD after Exists: %zu nodes, %.0lf global assignments, %.0lf local assignments.", mtbdd_nodecount(quantified), mtbdd_satcount(quantified, nvars), mtbdd_satcount(quantified, nvars_env));
-
-        // print_clause_db(q_isoc, nvars);
-
-        // Get number of clauses
-        size_t env_n_clauses = zdd_satcount(db);
-        size_t isoc_n_clauses = zdd_satcount(isoc);
-        size_t q_isoc_n_clauses = zdd_satcount(q_isoc);
-
-        INFO("#Clauses before=%zu, after=%zu, quant=%zu.", env_n_clauses, isoc_n_clauses, q_isoc_n_clauses);
-
-        if (q_isoc_n_clauses <= env_n_clauses) {
-            print_clause_db(q_isoc, nvars);
-        } else if (isoc_n_clauses < env_n_clauses) {
-            print_clause_db(isoc, nvars);
-        }
-
-        exit(1);
+        CALL(do_variables, db);
+        exit(0);
     }
 
-    // Find out for each variable
+    // Compute environments for all variables...
     environments = (struct env*)calloc(sizeof(struct env), nvars);
+
     if (1) {
         INFO("Computing environments...");
         for (int i=1; i<=nvars; i++) {
@@ -818,14 +843,15 @@ main(int argc, char **argv)
             zdd_refs_pop(2);
             int n_env_vars = zdd_set_count(envvars);
             size_t n_env_nodes = zdd_nodecount(&env, 1);
+            // we have computed the relevant data, but do not store the env dd at this point
             environments[i-1].var = i;
             environments[i-1].n_clauses = n_env_clauses;
             environments[i-1].n_vars = n_env_vars;
             environments[i-1].n_nodes = n_env_nodes;
         }
 
-        // Sort environments
-        INFO("Sorting environments...");
+        // Sort environments, currently by number of nodes
+        INFO("Sorting environments by number of nodes...");
         qsort(environments, nvars, sizeof(struct env), env_compare);
 
         // List the environments (if verbose)
@@ -841,6 +867,14 @@ main(int argc, char **argv)
         }
     }
 
+    // Add ptr references
+    for (int i=0; i<nvars; i++) {
+        zdd_refs_pushptr(&environments[i].env);
+        mtbdd_refs_pushptr(&environments[i].sat);
+    }
+
+    sylvan_gc_disable();
+
 restart:
     for (int i=0; i<nvars; i++) {
         printf("%d/%d    \r", i, nvars);
@@ -854,11 +888,12 @@ restart:
         }
 
         /**
-         * Recompute the environment
+         * Compute the environment
          */
         ZDD lits = zdd_set_from_array((uint32_t[]){2*e->var, 2*e->var+1}, 2);
         zdd_refs_push(lits);
         ZDD env = zdd_clause_environment(db, lits);
+        zdd_refs_push(env);
 
         /**
          * If environment empty, skip
@@ -866,6 +901,7 @@ restart:
         if (env == zdd_false) {
             e->sat = mtbdd_true;
             e->env = zdd_false;
+            zdd_refs_pop(1);
             continue; // skip empty
         }
 
@@ -880,7 +916,9 @@ restart:
          * Compute the involved variables
          */
         ZDD env_vars = zdd_clause_support(env);
+        zdd_refs_push(env_vars);
         MTBDD env_vars_bdd = zdd_set_to_mtbdd(env_vars);
+        mtbdd_refs_push(env_vars_bdd);
         size_t env_vars_count = zdd_set_count(env_vars);
 
         /**
@@ -893,7 +931,7 @@ restart:
         */
 
         /**
-         * Compute second order environment
+         * Compute second order environment (EXPENSIVE!)
          */
         /*
         ZDD env_supp = zdd_support(env);
@@ -905,44 +943,46 @@ restart:
         */
 
         /**
-         * Compute the satisfying assignments
+         * Compute the satisfying assignments for the current environment
          */
         MTBDD sat = zdd_clause_sat(env, mtbdd_true);
+        mtbdd_refs_push(sat);
 
         /**
          * Compute projected state space based on earlier environments
          */
         MTBDD care = mtbdd_true;
+        mtbdd_refs_pushptr(&care);
         if (1) {
+            MTBDD q;
+            mtbdd_refs_pushptr(&q);
             for (int j=0; j<i; j++) {
                 BDD q = sylvan_project(environments[j].sat, env_vars_bdd);
                 care = sylvan_and(care, q);
             }
+            mtbdd_refs_popptr(1);
         }
 
         /**
          * Report if the dontcare set is non-empty
          */
         if (care != mtbdd_true && verbose) {
-            // TODO: change into percentage
-            printf("Preset for %d has %.0f models (%zu vars)\n", e->var, mtbdd_satcount(care, env_vars_count), env_vars_count);
+            // TODO: report the percentage?
+            printf("Care set for environment %d has %.0f models (%zu vars)\n", e->var, mtbdd_satcount(care, env_vars_count), env_vars_count);
         }
 
         /**
          * Compute lower and upper bound using projected state space
          */
         MTBDD lower = sylvan_and(sat, care);
+        mtbdd_refs_push(lower);
         MTBDD upper = sat;
+        mtbdd_refs_push(upper);
 
         // Compute ISOC of BDD
         MTBDD check;
         ZDD isoc = zdd_clause_isoc(lower, upper, &check);
-
-        // Compute ISOC of BDD where we perform existential quantification
-        MTBDD quantified = sylvan_exists(sat, sylvan_ithvar(e->var));
-        MTBDD q_check;
-        ZDD q_isoc = zdd_clause_isoc(quantified, quantified, &q_check);
-        assert(q_check == quantified);
+        zdd_refs_push(isoc);
 
         /**
          * Check if the resulting set is between lower and upper bounds
@@ -965,10 +1005,18 @@ restart:
         /**
          * Sanity check
          */
+        /*
         if (check != zdd_clause_sat(isoc, mtbdd_true)) {
             printf("Resulting ISOC does not match output BDD!\n");
             exit(1);
         }
+        */
+
+        // Compute ISOC of BDD where we perform existential quantification
+        MTBDD quantified = sylvan_exists(sat, sylvan_ithvar(e->var));
+        MTBDD q_check;
+        ZDD q_isoc = zdd_clause_isoc(quantified, quantified, &q_check);
+        assert(q_check == quantified);
 
         // printf("c Result: %zu %zu\n", isoc, xx);
         // printf("c Check: %d\n", sat == xx ? 1 : 0);
@@ -988,7 +1036,7 @@ restart:
         // TODO count number of nodes of result also
 
         if (clauses_after < clauses_before || clauses_q < clauses_before) {
-            db = zdd_ite(env, zdd_false, db, db_dom);
+            db = zdd_diff(db, env);
             if (clauses_q < clauses_after) {
                 db = zdd_or(db, q_isoc);
             } else {

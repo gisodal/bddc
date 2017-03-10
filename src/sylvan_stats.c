@@ -113,6 +113,7 @@ struct
     {2, ZDD_OR, "ZDD or" },
     {2, ZDD_ITE, "ZDD ite" },
     {2, ZDD_NOT, "ZDD not" },
+    {2, ZDD_DIFF, "ZDD diff" },
     {2, ZDD_EXISTS, "ZDD exists" },
     {2, ZDD_PROJECT, "ZDD project" },
     {2, ZDD_CLAUSE_ENVIRONMENT, "ZDD cl_env" },

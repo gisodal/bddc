@@ -736,58 +736,48 @@ size_t zdd_count_protected(void);
 #define zdd_notify_ondead(dd) llmsset_notify_ondead(nodes, dd&~zdd_complement)
 
 /**
- * Infrastructure for internal references (per-thread, e.g. during ZDD operations)
- * Use zdd_refs_push and zdd_refs_pop to put ZDDs on a thread-local reference stack.
- * Use zdd_refs_spawn and zdd_refs_sync around SPAWN and SYNC operations when the result
- * of the spawned Task is a ZDD that must be kept during garbage collection.
+ * Infrastructure for internal references.
+ * Every thread has its own reference stacks. There are three stacks: pointer, values, tasks stack.
+ * The pointers stack stores pointers to ZDD variables, manipulated with pushptr and popptr.
+ * The values stack stores ZDDs, manipulated with push and pop.
+ * The tasks stack stores Lace tasks (that return ZDDs), manipulated with spawn and sync.
+ *
+ * It is recommended to use the pointers stack for local variables and the tasks stack for tasks.
  */
-typedef struct zdd_refs_internal
-{
-    size_t r_size, r_count;
-    size_t s_size, s_count;
-    ZDD *results;
-    Task **spawns;
-} *zdd_refs_internal_t;
 
-extern DECLARE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
+/**
+ * Push a ZDD variable to the pointer reference stack.
+ * During garbage collection the variable will be inspected and the contents will be marked.
+ */
+void zdd_refs_pushptr(ZDD *ptr);
 
-static inline ZDD
-zdd_refs_push(ZDD zdd)
-{
-    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
-    if (zdd_refs_key->r_count >= zdd_refs_key->r_size) {
-        zdd_refs_key->r_size *= 2;
-        zdd_refs_key->results = (ZDD*)realloc(zdd_refs_key->results, sizeof(ZDD) * zdd_refs_key->r_size);
-    }
-    zdd_refs_key->results[zdd_refs_key->r_count++] = zdd;
-    return zdd;
-}
+/**
+ * Pop the last <amount> ZDD variables from the pointer reference stack.
+ */
+void zdd_refs_popptr(size_t amount);
 
-static inline void
-zdd_refs_pop(int amount)
-{
-    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
-    zdd_refs_key->r_count-=amount;
-}
+/**
+ * Push an ZDD to the values reference stack.
+ * During garbage collection the references ZDD will be marked.
+ */
+ZDD zdd_refs_push(ZDD zdd);
 
-static inline void
-zdd_refs_spawn(Task *t)
-{
-    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
-    if (zdd_refs_key->s_count >= zdd_refs_key->s_size) {
-        zdd_refs_key->s_size *= 2;
-        zdd_refs_key->spawns = (Task**)realloc(zdd_refs_key->spawns, sizeof(Task*) * zdd_refs_key->s_size);
-    }
-    zdd_refs_key->spawns[zdd_refs_key->s_count++] = t;
-}
+/**
+ * Pop the last <amount> ZDDs from the values reference stack.
+ */
+void zdd_refs_pop(long amount);
 
-static inline ZDD
-zdd_refs_sync(ZDD result)
-{
-    LOCALIZE_THREAD_LOCAL(zdd_refs_key, zdd_refs_internal_t);
-    zdd_refs_key->s_count--;
-    return result;
-}
+/**
+ * Push a Task that returns an ZDD to the tasks reference stack.
+ * Usage: zdd_refs_spawn(SPAWN(function, ...));
+ */
+void zdd_refs_spawn(Task *t);
+
+/**
+ * Pop a Task from the task reference stack.
+ * Usage: ZDD result = zdd_refs_sync(SYNC(function));
+ */
+ZDD zdd_refs_sync(ZDD mtbdd);
 
 #ifdef __cplusplus
 }
