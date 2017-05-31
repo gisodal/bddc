@@ -1622,7 +1622,7 @@ TASK_IMPL_4(MDD, lddmc_join, MDD, a, MDD, b, MDD, a_proj, MDD, b_proj)
 }
 
 // so: proj: -2 (end; quantify rest), -1 (end; keep rest), 0 (quantify), 1 (keep)
-TASK_IMPL_2(MDD, lddmc_project, const MDD, mdd, const MDD, proj)
+TASK_IMPL_3(MDD, lddmc_project, const MDD, mdd, const MDD, sproj, const MDD, proj)
 {
     if (mdd == lddmc_false) return lddmc_false; // projection of empty is empty
     if (mdd == lddmc_true) return lddmc_true; // projection of universe is universe...
@@ -1631,6 +1631,10 @@ TASK_IMPL_2(MDD, lddmc_project, const MDD, mdd, const MDD, proj)
     uint32_t p_val = mddnode_getvalue(p_node);
     if (p_val == (uint32_t)-1) return mdd;
     if (p_val == (uint32_t)-2) return lddmc_true; // because we always end with true.
+
+    mddnode_t sp_node = LDD_GETNODE(proj);
+    uint32_t sp_val = mddnode_getvalue(sp_node);
+    assert (p_val <= sp_val && "Invalid projection (not projecting to a subset of source set's projection?).");
 
     sylvan_gc_test();
 
@@ -1645,8 +1649,9 @@ TASK_IMPL_2(MDD, lddmc_project, const MDD, mdd, const MDD, proj)
     mddnode_t n = LDD_GETNODE(mdd);
 
     if (p_val == 1) { // keep
-        lddmc_refs_spawn(SPAWN(lddmc_project, mddnode_getright(n), proj));
-        MDD down = CALL(lddmc_project, mddnode_getdown(n), mddnode_getdown(p_node));
+        lddmc_refs_spawn(SPAWN(lddmc_project, mddnode_getright(n), sproj, proj));
+        MDD down = CALL(lddmc_project, mddnode_getdown(n),
+                        mddnode_getdown(sp_node), mddnode_getdown(p_node));
         lddmc_refs_push(down);
         MDD right = lddmc_refs_sync(SYNC(lddmc_project));
         lddmc_refs_pop(1);
@@ -1657,8 +1662,9 @@ TASK_IMPL_2(MDD, lddmc_project, const MDD, mdd, const MDD, proj)
         } else {
             int count = 0;
             MDD p_down = mddnode_getdown(p_node), _mdd=mdd;
+            MDD sp_down = mddnode_getdown(sp_node);
             while (1) {
-                lddmc_refs_spawn(SPAWN(lddmc_project, mddnode_getdown(n), p_down));
+                lddmc_refs_spawn(SPAWN(lddmc_project, mddnode_getdown(n), sp_down, p_down));
                 count++;
                 _mdd = mddnode_getright(n);
                 assert(_mdd != lddmc_true);
