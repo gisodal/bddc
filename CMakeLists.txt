@@ -84,5 +84,8 @@ set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_PATCH_VERSION})
 include(CPack)
 
 # pkg-config
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/sylvan.pc.cmake.in" "${CMAKE_CURRENT_BINARY_DIR}/sylvan.pc" @ONLY)
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/sylvan.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/bddc.pc.cmake.in" "${CMAKE_CURRENT_BINARY_DIR}/bddc.pc" @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/bddc.pc" DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
+
+set_target_properties(sylvan PROPERTIES OUTPUT_NAME "bddc")
+

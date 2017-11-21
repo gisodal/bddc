@@ -10,7 +10,7 @@ cd build
 
 cmake \
     -DCMAKE_INSTALL_PREFIX:PATH=${TARGET} \
-    -DCMAKE_INSTALL_INCLUDEDIR:PATH=${TARGET}/include/sylvan \
+    -DCMAKE_INSTALL_INCLUDEDIR:PATH=${TARGET}/include/bddc \
     -DCMAKE_INSTALL_LIBDIR:PATH=${TARGET}/lib64 \
     ..
 
