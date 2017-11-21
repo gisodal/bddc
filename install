@@ -1,0 +1,18 @@
+#!/bin/bash
+
+SCRIPTDIR=$(dirname $(readlink -f $0))
+ROOTDIR=$(cd ${SCRIPTDIR}/.. && git rev-parse --show-toplevel)
+
+TARGET=${ROOTDIR}/usr
+mkdir -p ${TARGET}
+mkdir -p build
+cd build
+
+cmake \
+    -DCMAKE_INSTALL_PREFIX:PATH=${TARGET} \
+    -DCMAKE_INSTALL_INCLUDEDIR:PATH=${TARGET}/include/sylvan \
+    -DCMAKE_INSTALL_LIBDIR:PATH=${TARGET}/lib64 \
+    ..
+
+make install
+
