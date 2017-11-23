@@ -1,17 +1,21 @@
 #!/bin/bash
 
-CMAKEFLAGS=
-if [ "$1" == "debug" ]; then
-    CMAKEFLAGS='-DCMAKE_BUILD_TYPE=Debug'
-fi
-
 SCRIPTDIR=$(dirname $(readlink -f $0))
 ROOTDIR=$(cd ${SCRIPTDIR}/.. && git rev-parse --show-toplevel)
 
 TARGET=${ROOTDIR}/usr
 mkdir -p ${TARGET}
-mkdir -p build
-cd build
+
+CMAKEFLAGS=
+if [ "$1" == "debug" ]; then
+    CMAKEFLAGS='-DCMAKE_BUILD_TYPE=Debug'
+    mkdir -p debug
+    cd debug
+else
+    CMAKEFLAGS='-DCMAKE_BUILD_TYPE=Release'
+    mkdir -p release
+    cd release
+fi
 
 cmake \
     ${CMAKEFLAGS} \

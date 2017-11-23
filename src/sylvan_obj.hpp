@@ -324,6 +324,11 @@ public:
      */
     size_t NodeCount() const;
 
+    /**
+     * @brief Writes a dot file to graphically represent the BDD
+     */
+    void Dot(std::string filename);
+
 private:
     BDD bdd;
 };

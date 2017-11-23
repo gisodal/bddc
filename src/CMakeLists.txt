@@ -9,6 +9,7 @@ set(SOURCES
     sylvan_mt.c
     sylvan_mtbdd.c
     sylvan_obj.cpp
+    sylvan_dot.cpp
     sylvan_refs.c
     sylvan_sl.c
     sylvan_stats.c
