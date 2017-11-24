@@ -33,11 +33,6 @@ using namespace sylvan;
 #define TERMINAL_FALSE (INT32_MAX-1)
 #define TERMINAL_TRUE  (INT32_MAX-2)
 
-
-#define BDD_COMPLEMENT (0x8000000000000000LL)
-#define BDD_STRIPMARK(node) ((uint64_t)(node & (~BDD_COMPLEMENT)))
-#define BDD_HASMARK(node) ((int)(node & 0x4000000000000000 ? 1 : 0))
-
 typedef std::map< uint32_t, std::vector<Bdd> > LevelMap;
 
 
@@ -55,7 +50,7 @@ void DotToPs(std::string source, std::string destination, bool synchronous = tru
 }
 
 bool seen(std::set<BDD> &set, Bdd &node){
-    BDD rawnode = BDD_STRIPMARK(node.GetBDD());
+    BDD rawnode = node.GetBDD();
     if(set.insert(rawnode).second)
         return false;
     else return true;
@@ -110,7 +105,7 @@ void FprintNodes(FILE *file, LevelMap &level){
             fprintf(file, "        variable_%" PRIu32 " [shape = plaintext, label=\"%" PRIu32 "\" ];\n", variable,variable);
             for(auto itbdds = bdds.begin(); itbdds != bdds.end(); itbdds++){
                 Bdd &bdd = *itbdds;
-                fprintf(file, "        %" PRIu64 ";\n", (uint64_t) BDD_STRIPMARK(bdd.GetBDD()));
+                fprintf(file, "        %" PRIu64 ";\n", (uint64_t) bdd.GetBDD());
             }
         }
         fprintf(file, "    }\n\n");
@@ -147,15 +142,14 @@ void FprintEdges(FILE *file, LevelMap &level){
                 Bdd &bdd = *itbdds;
 
                 // then edge
-                fprintf(file, "        %" PRIu64 " -> %" PRIu64 " [style=solid dir=both arrowtail=%s];\n",
-                    BDD_STRIPMARK(bdd.GetBDD()),
-                    (bdd.Then().isTerminal()?TERMINAL_FALSE:BDD_STRIPMARK(bdd.Then().GetBDD())),
-                    (BDD_HASMARK(bdd.Then().GetBDD()) ? "dot" : "none"));
+                fprintf(file, "        %" PRIu64 " -> %" PRIu64 " [style=solid dir=both arrowtail=none];\n", // arrowtail="dot" | "none"
+                    bdd.GetBDD(),
+                    (bdd.Then().isTerminal()?(bdd.Then()isOne()?TERMINAL_TRUE,TERMINAL_FALSE):bdd.Then().GetBDD()));
 
                 // else edge
                 fprintf(file, "        %" PRIu64 " -> %" PRIu64 " [style=dashed];\n",
-                    BDD_STRIPMARK(bdd.GetBDD()),
-                    (bdd.Else().isTerminal()?TERMINAL_FALSE:BDD_STRIPMARK(bdd.Then().GetBDD())));
+                    bdd.GetBDD(),
+                    (bdd.Else().isTerminal()?(bdd.Else()isOne()?TERMINAL_TRUE,TERMINAL_FALSE):bdd.Else().GetBDD()));
             }
         }
     }
