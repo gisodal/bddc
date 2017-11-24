@@ -3,7 +3,7 @@
 SCRIPTDIR=$(dirname $(readlink -f $0))
 ROOTDIR=$(cd ${SCRIPTDIR}/.. && git rev-parse --show-toplevel)
 
-TARGET=${ROOTDIR}/usr
+TARGET=${ROOTDIR}
 mkdir -p ${TARGET}
 
 CMAKEFLAGS=

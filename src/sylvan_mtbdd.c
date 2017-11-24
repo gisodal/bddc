@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+
 #include <sylvan_int.h>
 
 #include <inttypes.h>
@@ -24,6 +25,7 @@
 #include <sylvan_refs.h>
 #include <sylvan_sl.h>
 #include <sha2.h>
+#include <sylvan_mtbdd_int.h>
 
 /* Primitives */
 int
@@ -2551,7 +2553,7 @@ mtbdd_enum_first(MTBDD dd, MTBDD variables, uint8_t *arr, mtbdd_enum_filter_cb f
             *arr = 1;
             return res;
         }
-        
+
         // we've tried low and high, return false
         return mtbdd_false;
     }
@@ -3240,7 +3242,7 @@ VOID_TASK_IMPL_3(mtbdd_writer_tobinary, FILE *, out, MTBDD *, dds, int, count)
     mtbdd_writer_writebinary(out, sl);
 
     fwrite(&count, sizeof(int), 1, out);
-    
+
     for (int i=0; i<count; i++) {
         uint64_t v = mtbdd_writer_get(sl, dds[i]);
         fwrite(&v, sizeof(uint64_t), 1, out);
@@ -3285,7 +3287,7 @@ VOID_TASK_IMPL_3(mtbdd_writer_totext, FILE *, out, MTBDD *, dds, int, count)
     mtbdd_writer_writetext(out, sl);
 
     fprintf(out, ",[");
-    
+
     for (int i=0; i<count; i++) {
         uint64_t v = mtbdd_writer_get(sl, dds[i]);
         fprintf(out, "%s%zu,", MTBDD_HASMARK(v)?"~":"", (size_t)MTBDD_STRIPMARK(v));
@@ -3373,7 +3375,7 @@ TASK_IMPL_3(int, mtbdd_reader_frombinary, FILE*, in, MTBDD*, dds, int, count)
         mtbdd_reader_end(arr);
         return -1;
     }
-    
+
     /* Read every stored identifier, and translate to MTBDD */
     for (int i=0; i<count; i++) {
         uint64_t v;

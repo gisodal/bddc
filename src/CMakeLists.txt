@@ -39,7 +39,7 @@ set(HEADERS
 option(BUILD_SHARED_LIBS "Enable/disable creation of shared libraries" ON)
 option(BUILD_STATIC_LIBS "Enable/disable creation of static libraries" ON)
 
-add_library(sylvan ${SOURCES})
+add_library(sylvan STATIC ${SOURCES})
 
 find_package(GMP REQUIRED)
 

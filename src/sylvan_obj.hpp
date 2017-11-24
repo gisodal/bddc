@@ -121,6 +121,9 @@ public:
      */
     int isZero() const;
 
+
+    int isComplement() const;
+
     /**
      * @brief Returns the top variable index of this Bdd (the variable in the root node)
      */

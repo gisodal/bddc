@@ -1,4 +1,4 @@
-include_directories(.)
+include_directories(.,../src)
 
 add_executable(mc mc.c getrss.h getrss.c)
 target_link_libraries(mc sylvan)
