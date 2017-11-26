@@ -30,12 +30,18 @@
 using namespace sylvan;
 
 #define TERMINAL_LEVEL INT32_MAX
-#define TERMINAL_FALSE (INT32_MAX-1)
-#define TERMINAL_TRUE  (INT32_MAX-2)
+#define TERMINAL_FALSE (INT64_MAX-1)
+#define TERMINAL_TRUE  (INT64_MAX-2)
 
 typedef std::map< uint32_t, std::vector<Bdd> > LevelMap;
 
-
+BDD GetId(Bdd bdd){
+    if(bdd.isTerminal()){
+        if(bdd.isOne())
+            return TERMINAL_TRUE;
+        else return TERMINAL_FALSE;
+    } else return bdd.GetBDD();
+}
 
 void DotToPs(std::string source, std::string destination, bool synchronous = true){
     #pragma GCC diagnostic push
@@ -117,17 +123,12 @@ void FprintOrder(FILE *file, LevelMap &level){
     fprintf(file, "    { \n");
     fprintf(file, "        edge [style = invis];\n");
 
-    //for(auto it = level.begin(); it != level.end(); it++){
-    //    uint32_t variable = it->first;
-    //    if(!(it->second[0].isTerminal()))
-    //        fprintf(file, "        variable_%" PRIu32 " [ label=\"%" PRIu32 "\" ];\n", variable, variable);
-    //}
-
     for(auto it = level.begin(); it != level.end(); it++){
         uint32_t variable = it->first;
         if(!(it->second[0].isTerminal()))
             fprintf(file, "        variable_%" PRIu32 " ->\n", variable);
     }
+
     fprintf(file, "        terminals;\n");
     fprintf(file, "    }\n\n");
 }
@@ -143,13 +144,13 @@ void FprintEdges(FILE *file, LevelMap &level){
 
                 // then edge
                 fprintf(file, "        %" PRIu64 " -> %" PRIu64 " [style=solid dir=both arrowtail=none];\n", // arrowtail="dot" | "none"
-                    bdd.GetBDD(),
-                    (bdd.Then().isTerminal()?(bdd.Then()isOne()?TERMINAL_TRUE,TERMINAL_FALSE):bdd.Then().GetBDD()));
+                    GetId(bdd),
+                    GetId(bdd.Then()));
 
                 // else edge
                 fprintf(file, "        %" PRIu64 " -> %" PRIu64 " [style=dashed];\n",
-                    bdd.GetBDD(),
-                    (bdd.Else().isTerminal()?(bdd.Else()isOne()?TERMINAL_TRUE,TERMINAL_FALSE):bdd.Else().GetBDD()));
+                    GetId(bdd),
+                    GetId(bdd.Else()));
             }
         }
     }
@@ -159,7 +160,6 @@ void FprintEdges(FILE *file, LevelMap &level){
 void FprintDot(FILE *file, Bdd bdd){
     LevelMap level = DetermineLevelMap(bdd);
 
-    BDD root = bdd.GetBDD();
     fprintf(file, "digraph \"silvan\" {\n");
     fprintf(file, "    graph [dpi = 300];\n");
     fprintf(file, "    center = true;\n");
@@ -172,18 +172,11 @@ void FprintDot(FILE *file, Bdd bdd){
     FprintEdges(file, level);
 
     fprintf(file, "    entry [style=invis];\n");
-    if(bdd.isTerminal())
-        fprintf(file, "    entry -> %" PRIu64 " [style=solid dir=both arrowtail=%s];\n",
-            (uint64_t) TERMINAL_FALSE, BDD_HASMARK(root) ? "dot" : "none");
-    else fprintf(file, "    entry -> %" PRIu64 " [style=solid dir=both arrowtail=%s];\n",
-            BDD_STRIPMARK(root), BDD_HASMARK(root) ? "dot" : "none");
-
-
-
+    fprintf(file, "    entry -> %" PRIu64 " [style=solid dir=both arrowtail=%s];\n", GetId(bdd),"none");
     fprintf(file, "}\n");
 }
 
-void Bdd::Dot(std::string filename){
+void Bdd::Dot(std::string filename, const bool kCreatePs){
      size_t position = filename.find_last_of(".");
     std::string extension = (std::string::npos == position)? std::string() : filename.substr(position+1);
     std::string base = (std::string::npos == position)? filename : filename.substr(0,position);
@@ -198,29 +191,29 @@ void Bdd::Dot(std::string filename){
         FprintDot(file, bdd);
         fclose(file);
 
-        DotToPs(filename, base + ".ps");
+        if(kCreatePs)
+            DotToPs(filename, base + ".ps");
     } else fprintf(stderr,"Could not open dot file '%s'\n", filename.c_str());
 }
 
-//void Bdd::Dot(std::string filename){
-//    size_t position = filename.find_last_of(".");
-//    std::string extension = (std::string::npos == position)? std::string() : filename.substr(position+1);
-//    std::string base = (std::string::npos == position)? filename : filename.substr(0,position);
-//
-//    if(extension != "dot"){
-//        fprintf(stderr, "filename '%s' is not a dot file\n",filename.c_str());
-//        return;
-//    }
-//
-//    FILE *file = fopen(filename.c_str(), "w");
-//    if(file){
-//        PrintDot(file);
-//        DotToPs(filename, base + ".ps");
-//        fclose(file);
-//    } else fprintf(stderr,"Could not open dot file '%s'\n", filename.c_str());
-//}
+void Bdd::DotWithComplement(std::string filename, const bool kCreatePs){
+    size_t position = filename.find_last_of(".");
+    std::string extension = (std::string::npos == position)? std::string() : filename.substr(position+1);
+    std::string base = (std::string::npos == position)? filename : filename.substr(0,position);
 
+    if(extension != "dot"){
+        fprintf(stderr, "filename '%s' is not a dot file\n",filename.c_str());
+        return;
+    }
 
+    FILE *file = fopen(filename.c_str(), "w");
+    if(file){
+        PrintDot(file);
+        fclose(file);
 
+        if(kCreatePs)
+            DotToPs(filename, base + ".ps");
+    } else fprintf(stderr,"Could not open dot file '%s'\n", filename.c_str());
+}
 
 
