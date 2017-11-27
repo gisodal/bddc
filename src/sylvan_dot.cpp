@@ -88,11 +88,11 @@ LevelMap DetermineLevelMap(Bdd &bdd){
     return std::move(level);
 }
 
-void FprintNodes(FILE *file, LevelMap &level){
+void FprintNodes(FILE *file, const LevelMap &level, const std::vector< std::string > &names){
     fprintf(file, "\n    // ==================== NODES ====================\n\n");
 
     for(auto it = level.begin(); it != level.end(); it++){
-        std::vector<Bdd> &bdds = it->second;
+        const std::vector<Bdd> &bdds = it->second;
 
         fprintf(file, "    {\n");
         fprintf(file, "        rank = same;\n");
@@ -100,17 +100,20 @@ void FprintNodes(FILE *file, LevelMap &level){
             fprintf(file, "        node [ shape=box, style=filled ];\n");
             fprintf(file, "        terminals [shape = plaintext, style = invis];\n");
             for(auto itbdds = bdds.begin(); itbdds != bdds.end(); itbdds++){
-                Bdd &bdd = *itbdds;
+                const Bdd &bdd = *itbdds;
                 fprintf(file, "        %" PRIu64 " [label=\"%s\"];\n",
-                        (uint64_t) (bdd.isOne()?TERMINAL_TRUE:TERMINAL_FALSE),
+                        GetId(bdd),
                         (bdd.isOne()?"T":"F"));
             }
         } else {
             uint32_t variable = bdds[0].TopVar();
-            fprintf(file, "        node [ label=\"%" PRIu32 "\" ];\n",variable);
+            if(names.empty())
+                fprintf(file, "        node [ label=\"%" PRIu32 "\" ];\n",variable);
+            else fprintf(file, "        node [ label=\"%s\" ];\n", names[variable].c_str());
+
             fprintf(file, "        variable_%" PRIu32 " [shape = plaintext, label=\"%" PRIu32 "\" ];\n", variable,variable);
             for(auto itbdds = bdds.begin(); itbdds != bdds.end(); itbdds++){
-                Bdd &bdd = *itbdds;
+                const Bdd &bdd = *itbdds;
                 fprintf(file, "        %" PRIu64 ";\n", (uint64_t) bdd.GetBDD());
             }
         }
@@ -157,15 +160,15 @@ void FprintEdges(FILE *file, LevelMap &level){
     fprintf(file, "    }\n\n");
 }
 
-void FprintDot(FILE *file, Bdd bdd){
+void FprintDot(FILE *file, Bdd bdd, const std::vector< std::string > &names){
     LevelMap level = DetermineLevelMap(bdd);
 
     fprintf(file, "digraph \"silvan\" {\n");
-    fprintf(file, "    graph [dpi = 300];\n");
+    // fprintf(file, "    graph [dpi = 300];\n");
     fprintf(file, "    center = true;\n");
     fprintf(file, "    edge [dir = forward];\n");
 
-    FprintNodes(file, level);
+    FprintNodes(file, level, names);
 
     FprintOrder(file, level);
 
@@ -176,8 +179,13 @@ void FprintDot(FILE *file, Bdd bdd){
     fprintf(file, "}\n");
 }
 
-void Bdd::Dot(std::string filename, const bool kCreatePs){
-     size_t position = filename.find_last_of(".");
+void Bdd::Dot(std::string filename, const bool kCreatePs) const {
+    std::vector< std::string > names;
+    Dot(filename, names, kCreatePs);
+}
+
+void Bdd::Dot(std::string filename, const std::vector< std::string > &names, const bool kCreatePs) const {
+    size_t position = filename.find_last_of(".");
     std::string extension = (std::string::npos == position)? std::string() : filename.substr(position+1);
     std::string base = (std::string::npos == position)? filename : filename.substr(0,position);
 
@@ -188,7 +196,7 @@ void Bdd::Dot(std::string filename, const bool kCreatePs){
 
     FILE *file = fopen(filename.c_str(), "w");
     if(file){
-        FprintDot(file, bdd);
+        FprintDot(file, bdd, names);
         fclose(file);
 
         if(kCreatePs)
@@ -196,7 +204,7 @@ void Bdd::Dot(std::string filename, const bool kCreatePs){
     } else fprintf(stderr,"Could not open dot file '%s'\n", filename.c_str());
 }
 
-void Bdd::DotWithComplement(std::string filename, const bool kCreatePs){
+void Bdd::DotWithComplement(std::string filename, const bool kCreatePs) const {
     size_t position = filename.find_last_of(".");
     std::string extension = (std::string::npos == position)? std::string() : filename.substr(position+1);
     std::string base = (std::string::npos == position)? filename : filename.substr(0,position);

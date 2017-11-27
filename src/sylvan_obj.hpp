@@ -330,8 +330,10 @@ public:
     /**
      * @brief Writes a dot file to graphically represent the BDD
      */
-    void Dot(std::string filename, const bool kCreatePs = false);
-    void DotWithComplement(std::string filename, const bool kCreatePs = false);
+    void Dot(std::string filename, const bool kCreatePs = false) const;
+    void Dot(std::string filename, const std::vector< std::string > &names, const bool kCreatePs = false) const;
+
+    void DotWithComplement(std::string filename, const bool kCreatePs = false) const;
 
 private:
     BDD bdd;
