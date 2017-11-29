@@ -163,7 +163,7 @@ void FprintEdges(FILE *file, LevelMap &level){
 void FprintDot(FILE *file, Bdd bdd, const std::vector< std::string > &names){
     LevelMap level = DetermineLevelMap(bdd);
 
-    fprintf(file, "digraph \"silvan\" {\n");
+    fprintf(file, "digraph \"bddc\" {\n");
     // fprintf(file, "    graph [dpi = 300];\n");
     fprintf(file, "    center = true;\n");
     fprintf(file, "    edge [dir = forward];\n");
