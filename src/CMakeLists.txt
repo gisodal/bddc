@@ -18,6 +18,7 @@ set(SOURCES
 
 set(HEADERS
     lace.h
+    bddc.h
     sylvan.h
     sylvan_bdd.h
     sylvan_cache.h
