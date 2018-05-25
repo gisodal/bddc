@@ -5,3 +5,7 @@
 .cproject
 .project
 .settings
+
+build
+release
+debug
